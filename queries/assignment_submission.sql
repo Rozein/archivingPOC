@@ -1,0 +1,1 @@
+select * from "AssignmentSubmission" a;

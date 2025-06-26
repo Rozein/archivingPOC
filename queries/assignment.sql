@@ -1,0 +1,1 @@
+select * from "Assignment" a where a."Deadline" < :cutoff_date;
