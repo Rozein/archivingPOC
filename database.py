@@ -1,29 +1,31 @@
 import os
-from urllib.parse import quote_plus
-
-from sqlalchemy import create_engine, text
+import asyncpg
 from dotenv import load_dotenv
-
 
 load_dotenv()
 
-def get_engine():
-    user = os.getenv('DB_USER')
-    password = quote_plus(os.getenv('DB_PASSWORD'))  # Encode special characters
-    host = os.getenv('DB_HOST')
-    port = os.getenv('DB_PORT')
-    dbname = os.getenv('DB_NAME')
+async def get_connection():
+    return await asyncpg.connect(
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASSWORD'),
+        database=os.getenv('DB_NAME'),
+        host=os.getenv('DB_HOST'),
+        port=os.getenv('DB_PORT')
+    )
 
-    db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
-    return create_engine(db_url)
 
-def fetch_data(sql_file_path, params):
-    engine = get_engine()
-    with open(sql_file_path, 'r') as file:
-        query = text(file.read())
+async def fetch_data(sql_path, *params):
+    conn = await get_connection()
+    try:
+        with open(sql_path, 'r') as file:
+            query = file.read()
+        stmt = await conn.prepare(query)
+        records = await stmt.fetch(*params)  # Unpack positional parameters
+        if records:
+            columns = records[0].keys()
+            rows = [tuple(row.values()) for row in records]
+            return rows, columns
+        return [], []
+    finally:
+        await conn.close()
 
-    with engine.connect() as conn:
-        result = conn.execute(query, params)
-        data = result.fetchall()
-        columns = result.keys()
-        return data, columns

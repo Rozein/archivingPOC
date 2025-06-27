@@ -1,6 +1,12 @@
-sqlalchemy~=2.0.41
-psycopg2-binary~=2.9.10
-boto3~=1.38.43
-python-dotenv~=1.1.1
-pandas~=2.3.0
-pyarrow
+# Async AWS
+aioboto3==11.3.0
+
+# Database
+asyncpg==0.29.0
+
+# Data handling
+pandas==2.2.2
+pyarrow==15.0.2
+
+# Env loading
+python-dotenv==1.0.1

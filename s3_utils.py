@@ -1,42 +1,35 @@
 import os
-import uuid
-from datetime import datetime
-import boto3
+import aioboto3
+from io import BytesIO
 from dotenv import load_dotenv
-from botocore.exceptions import ClientError
+import asyncio
+import asyncpg
 
 
 load_dotenv()
 
+AWS_REGION = os.getenv("AWS_REGION")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.getenv("AWS_REGION")
-BUCKET_NAME = os.getenv("S3_BUCKET")
 
-s3 = boto3.client(
-    's3',
-    region_name=AWS_REGION,
-    aws_access_key_id=AWS_ACCESS_KEY,
-    aws_secret_access_key=AWS_SECRET_KEY
-)
+session = aioboto3.Session()
+async def ensure_bucket_exists(bucket):
+    async with session.client("s3", region_name=AWS_REGION,
+                                aws_access_key_id=AWS_ACCESS_KEY,
+                                aws_secret_access_key=AWS_SECRET_KEY) as s3:
+        try:
+            await s3.head_bucket(Bucket=bucket)
+            print(f"✅ Bucket '{bucket}' already exists.")
+        except s3.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                await s3.create_bucket(Bucket=bucket, CreateBucketConfiguration={'LocationConstraint': AWS_REGION})
+                print(f"📦 Created bucket: {bucket}")
 
-def ensure_bucket_exists(bucket_name):
-    try:
-        s3.head_bucket(Bucket=bucket_name)
-        print(f"✅ Bucket '{bucket_name}' already exists.")
-    except ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            print(f"📦 Bucket '{bucket_name}' not found. Creating it...")
-            s3.create_bucket(
-                Bucket=bucket_name,
-                CreateBucketConfiguration={'LocationConstraint': AWS_REGION}
-            )
-            set_lifecycle_policy(bucket_name)
-        else:
-            raise e
+                await set_lifecycle_policy(bucket)
+            else:
+                raise
 
-
-def set_lifecycle_policy(bucket_name):
+async def set_lifecycle_policy(bucket):
     lifecycle_config = {
         'Rules': [
             {
@@ -53,30 +46,27 @@ def set_lifecycle_policy(bucket_name):
             }
         ]
     }
-
-    try:
-        s3.put_bucket_lifecycle_configuration(
-            Bucket=bucket_name,
+    async with session.client("s3", region_name=AWS_REGION,
+                                aws_access_key_id=AWS_ACCESS_KEY,
+                                aws_secret_access_key=AWS_SECRET_KEY) as s3:
+        await s3.put_bucket_lifecycle_configuration(
+            Bucket=bucket,
             LifecycleConfiguration=lifecycle_config
         )
-        print(f"✅ Lifecycle rule set to move all bucket content to Glacier after 30 days.")
-    except ClientError as e:
-        print(f"❌ Error setting lifecycle configuration: {e}")
+        print("✅ Lifecycle policy applied.")
 
-def upload_parquet_from_path(local_path, bucket_name):
-    today_folder = datetime.now().strftime("%b%d%Y").lower()
-    base_key = os.path.basename(local_path)
-    key = f"{today_folder}/{base_key}"
+async def upload_parquet_from_dataframe(df, bucket, key):
+    buffer = BytesIO()
+    loop = asyncio.get_running_loop()
+    converted_df = convert_uuids_to_str(df)
+    await loop.run_in_executor(None, lambda: converted_df.to_parquet(buffer, index=False))
+    buffer.seek(0)
 
-    with open(local_path, "rb") as f:
-        s3.upload_fileobj(f, bucket_name, key)
-
-    print(f"✅ Uploaded archive to s3://{bucket_name}/{key}")
-
+    async with session.client("s3", region_name=AWS_REGION,
+                                aws_access_key_id=AWS_ACCESS_KEY,
+                                aws_secret_access_key=AWS_SECRET_KEY) as s3:
+        await s3.upload_fileobj(buffer, bucket, key)
+    print(f"✅ Uploaded to s3://{bucket}/{key}")
 
 def convert_uuids_to_str(df):
-    for col in df.columns:
-        if df[col].apply(lambda x: isinstance(x, uuid.UUID)).any():
-            df[col] = df[col].astype(str)
-    return df
-
+    return df.map(lambda x: str(x) if isinstance(x, asyncpg.pgproto.pgproto.UUID) else x)
