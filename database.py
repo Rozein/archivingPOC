@@ -19,6 +19,11 @@ async def fetch_data(sql_path, *params):
     try:
         with open(sql_path, 'r') as file:
             query = file.read()
+
+        interpolated = interpolate_query(query, params)
+        print("📥 Executed SQL:")
+        print(interpolated)
+
         stmt = await conn.prepare(query)
         records = await stmt.fetch(*params)  # Unpack positional parameters
         if records:
@@ -28,4 +33,16 @@ async def fetch_data(sql_path, *params):
         return [], []
     finally:
         await conn.close()
+
+def interpolate_query(query: str, params: tuple) -> str:
+    for i, param in enumerate(params, 1):
+        if isinstance(param, str):
+            value = f"'{param}'"
+        elif param is None:
+            value = "NULL"
+        else:
+            value = str(param)
+        query = query.replace(f"${i}", value)
+    return query
+
 

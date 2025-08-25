@@ -8,7 +8,7 @@ from assignment_archive import archive_assignments
 load_dotenv()
 
 async def main():
-    cutoff_date = datetime.now() - timedelta(days=90)
+    cutoff_date = datetime.now() - timedelta(days=3*365)
     bucket = os.getenv("S3_BUCKET")
 
     await ensure_bucket_exists(bucket)
